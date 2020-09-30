@@ -1,0 +1,7 @@
+a{
+    color: red;
+    text-overline-mode: none;
+}
+a:hover{
+    color: aquamarine;
+}
