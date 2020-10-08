@@ -1,10 +1,14 @@
 package framework;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 import java.io.File;
 import java.io.FileFilter;
 import java.io.IOException;
@@ -26,64 +30,98 @@ public class DispatcherServlet extends HttpServlet {
     private Map<String,GetDispatcher> getMappings = new HashMap<>();
     private Map<String,PostDispatcher> postMappings = new HashMap<>();
     private ViewEngine engine = null;
+    private static final Set<Class<?>> supportedGetParameterTypes = Set.of(int.class, long.class, boolean.class,
+            String.class, HttpServletRequest.class, HttpServletResponse.class, HttpSession.class);
+    private static final Set<Class<?>> supportedPostParameterTypes = Set.of(HttpServletResponse.class, HttpServletRequest.class, HttpSession.class);
     @Override
-    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        resp.setContentType("text/html");
-        resp.setCharacterEncoding("utf-8");
-        String path = req.getRequestURI().substring(req.getContextPath().length());
-        GetDispatcher dispatcher = this.getMappings.get(path);
-        if(dispatcher == null){
-            resp.setStatus(404);
-            resp.sendError(404);
-            return;
-        }
-        ModelAndView mv = null;
-        try {
-            mv = dispatcher.invoke(req, resp);
-        } catch (InvocationTargetException e) {
-            e.printStackTrace();
-        }
-        if(mv == null){
-            return;
-        }
-        if(mv.view.startsWith("redirect:")){
-            resp.sendRedirect(mv.view.substring(9));
-            return;
-        }
-        PrintWriter pw = resp.getWriter();
-        //通过引擎渲染模板
-        this.engine.render(mv, pw);
-        pw.flush();
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        process(req,resp,this.getMappings);
+    }
+
+    @Override
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        process(req,resp,this.postMappings);
+    }
+    private void process(HttpServletRequest req, HttpServletResponse resp,
+                         Map<String, ? extends AbstractDispatcher> dispatcherMap) throws ServletException, IOException{
+            resp.setContentType("text/html");
+            resp.setCharacterEncoding("utf-8");
+            String path = req.getRequestURI().substring(req.getContextPath().length());
+            GetDispatcher dispatcher = this.getMappings.get(path);
+            if(dispatcher == null){
+                resp.setStatus(404);
+                resp.sendError(404);
+                return;
+            }
+            ModelAndView mv = null;
+            try {
+                mv = dispatcher.invoke(req, resp);
+            } catch (InvocationTargetException e) {
+                e.printStackTrace();
+            }
+            if(mv == null){
+                return;
+            }
+            if(mv.view.startsWith("redirect:")){
+                resp.sendRedirect(mv.view.substring(9));
+                return;
+            }
+            PrintWriter pw = resp.getWriter();
+            //通过引擎渲染模板
+            this.engine.render(mv, pw);
+            pw.flush();
     }
 
     @Override
     public void init() throws ServletException {
-        this.getMappings = scanGetInController();
-        this.postMappings = scanPostInController();
+        try {
+            Set<Class<?>> classes = getClasses("controller");
+            this.getMappings = scanGetInController(classes);
+            this.postMappings = scanPostInController(classes);
+        } catch (ReflectiveOperationException e) {
+            e.printStackTrace();
+        }
         this.engine = new ViewEngine(getServletContext());
     }
 
     //扫描所有GetMapping的方法
-    private Map<String, GetDispatcher> scanGetInController(){
+    private Map<String, GetDispatcher> scanGetInController(Set<Class<?>> classes){
         Map<String, GetDispatcher> stringGetDispatcherMap = new HashMap<>();
-        Set<Class<?>> classes = getClasses("controller");
         try{
             for(Class<?> clazz : classes){
                 Method[] methods = clazz.getDeclaredMethods();
                 for(Method method : methods){
-                    Annotation[] annotations = method.getDeclaredAnnotations();
-                    for(Annotation annotation : annotations){
-                        if(annotation instanceof GetMapping){
-                            GetDispatcher dispatcher = new GetDispatcher();
-                            dispatcher.instance = clazz.getConstructor().newInstance();
-                            dispatcher.method = method;
-                            dispatcher.parameterNames = Arrays.stream(method.getParameters())
-                                    .map(Parameter::getName).toArray(String[]::new);
-                            dispatcher.parameterClasses = Arrays.stream(method.getParameters())
-                                    .map(Parameter::getType).toArray(Class<?>[]::new);
-                            String path = ((GetMapping) annotation).value();
-                            stringGetDispatcherMap.put(path,dispatcher);
+//                    Annotation[] annotations = method.getDeclaredAnnotations();
+//                    for(Annotation annotation : annotations){
+//                        if(annotation instanceof GetMapping){
+//                            GetDispatcher dispatcher = new GetDispatcher();
+//                            dispatcher.instance = clazz.getConstructor().newInstance();
+//                            dispatcher.method = method;
+//                            dispatcher.parameterNames = Arrays.stream(method.getParameters())
+//                                    .map(Parameter::getName).toArray(String[]::new);
+//                            dispatcher.parameterClasses = Arrays.stream(method.getParameters())
+//                                    .map(Parameter::getType).toArray(Class<?>[]::new);
+//                            String path = ((GetMapping) annotation).value();
+//                            stringGetDispatcherMap.put(path,dispatcher);
+//                        }
+//                    }
+                    if(method.getAnnotation(GetMapping.class) != null){
+                        if(method.getReturnType() != ModelAndView.class && method.getReturnType() != void.class){
+                            throw new UnsupportedOperationException("Unsupported return type: " + method.getReturnType() +
+                                    " for method:" + method);
                         }
+                        for(Class<?> parameterClass : method.getParameterTypes()){
+                            if(!supportedGetParameterTypes.contains(parameterClass)){
+                                throw new UnsupportedOperationException(
+                                        "Unsupported parameter types: " + parameterClass + " for method: " + method);
+                            }
+                        }
+                        String[] parameterNames = Arrays.stream(method.getParameters()).map(Parameter::getName)
+                                .toArray(String[]::new);
+                        String path = method.getAnnotation(GetMapping.class).value();
+                        stringGetDispatcherMap.put(path,
+                                new GetDispatcher(clazz.getConstructor().newInstance(),
+                                        method,parameterNames,method.getParameterTypes()));
                     }
                 }
             }
@@ -94,8 +132,38 @@ public class DispatcherServlet extends HttpServlet {
         return stringGetDispatcherMap;
     }
 
-    private Map<String, PostDispatcher> scanPostInController(){
-        return new HashMap<>();
+    private Map<String, PostDispatcher> scanPostInController(Set<Class<?>> classes)
+            throws IllegalArgumentException, ReflectiveOperationException{
+        Map<String, PostDispatcher> stringPostDispatcherMap = new HashMap<>();
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        for(Class<?> clazz : classes){
+            Method[] methods = clazz.getDeclaredMethods();
+            for(Method method : methods){
+                if(method.getAnnotation(PostMapping.class) != null){
+                    if(method.getReturnType() != ModelAndView.class && method.getReturnType() != void.class){
+                        throw new UnsupportedOperationException("Unsupported return type: " + method.getReturnType() +
+                                " for method:" + method);
+                    }
+                    Class<?> requestBodyClass = null;
+                    for(Class<?> parameterClass : method.getParameterTypes()){
+                        if(!supportedPostParameterTypes.contains(parameterClass)){
+                            if(requestBodyClass == null){
+                                requestBodyClass = parameterClass;
+                            }else{
+                                throw new UnsupportedOperationException(
+                                        "Unsupported parameter types: " + parameterClass + " for method: " + method);
+                            }
+                        }
+                    }
+                    String path = method.getAnnotation(GetMapping.class).value();
+                    stringPostDispatcherMap.put(path,
+                            new PostDispatcher(clazz.getConstructor().newInstance(),method,
+                                    method.getParameterTypes(),objectMapper));
+                }
+            }
+        }
+        return stringPostDispatcherMap;
     }
 
     private  Set<Class<?>> getClasses(String pack) {

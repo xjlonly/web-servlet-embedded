@@ -14,7 +14,7 @@ import java.util.Map;
 
 public class UserController {
 
-    @GetMapping("/user/profile")
+    @GetMapping("/embedded/user/profile")
     public ModelAndView profile(HttpServletResponse response, HttpSession session, int a) throws IOException {
         User user = (User) session.getAttribute("user");
         if(user == null){
@@ -28,7 +28,7 @@ public class UserController {
         return  new ModelAndView("profile.html", Map.of("user", user));
     }
 
-    @GetMapping("/user/sign")
+    @GetMapping("/embedded/user/sign")
     public ModelAndView sign(HttpServletRequest request, HttpServletResponse response, HttpSession session, String username, String password){
         User user = new User();
         user.Name = username;
@@ -40,7 +40,7 @@ public class UserController {
         return  new ModelAndView("redirect:/embedded/user/index?id=1",Map.of("user",user));
     }
 
-    @GetMapping("/user/index")
+    @GetMapping("/embedded/user/index")
     public ModelAndView index(HttpServletRequest request, HttpServletResponse response, HttpSession session,int id) throws IOException{
         User user = (User) session.getAttribute("user");
         if(user == null){

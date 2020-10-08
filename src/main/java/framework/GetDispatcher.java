@@ -6,12 +6,13 @@ import javax.servlet.http.HttpSession;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
-public class  GetDispatcher{
+public class  GetDispatcher extends AbstractDispatcher{
     Object instance;//Controller实例
     Method method;
     String[] parameterNames;
     Class<?>[] parameterClasses;
 
+    @Override
     public ModelAndView invoke(HttpServletRequest req, HttpServletResponse resp) throws InvocationTargetException {
         Object[] arguments = new Object[parameterClasses.length];
         for(int i=0; i < parameterClasses.length; i++){
@@ -57,5 +58,12 @@ public class  GetDispatcher{
     private String getOrDefault(HttpServletRequest request, String name, String defaulValue){
         String s = request.getParameter(name);
         return  s == null ? defaulValue : s;
+    }
+    public GetDispatcher(Object instance, Method method, String[] parameterNames, Class<?>[] parameterClasses){
+        super();
+        this.instance = instance;
+        this.method = method;
+        this.parameterNames = parameterNames;
+        this.parameterClasses = parameterClasses;
     }
 }

@@ -9,30 +9,39 @@ import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
-public class PostDispatcher{
+public class PostDispatcher extends AbstractDispatcher{
     Object instance;//Controller实例
     Method method;
     Class<?>[] parameterClasses;
-    ObjectMapper objecMapper;
+    ObjectMapper objectMapper;
 
+    public PostDispatcher(Object instance, Method method, Class<?>[] parameterClasses, ObjectMapper objectMapper) {
+        super();
+        this.instance = instance;
+        this.method = method;
+        this.parameterClasses = parameterClasses;
+        this.objectMapper = objectMapper;
+    }
+
+    @Override
     public ModelAndView invoke(HttpServletRequest req, HttpServletResponse resp) throws IllegalAccessException, IOException, InvocationTargetException {
-        Object[] argsment = new Object[parameterClasses.length];
+        Object[] arguments = new Object[parameterClasses.length];
         for(int i= 0; i < parameterClasses.length; i++){
             Class<?> parameterClass = parameterClasses[i];
             if(parameterClass == HttpServletRequest.class){
-                argsment[i] = req;
+                arguments[i] = req;
             }
             else if(parameterClass == HttpServletResponse.class){
-                argsment[i] = resp;
+                arguments[i] = resp;
             }
             else if(parameterClass == HttpSession.class){
-                argsment[i] = req.getSession();
+                arguments[i] = req.getSession();
             }
             else{
                 var reader = req.getReader();
-                argsment[i] = this.objecMapper.readValue(reader, parameterClass);
+                arguments[i] = this.objectMapper.readValue(reader, parameterClass);
             }
         }
-        return  (ModelAndView)this.method.invoke(instance, argsment);
+        return  (ModelAndView)this.method.invoke(instance, arguments);
     }
 }
